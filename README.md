@@ -1,8 +1,8 @@
-# NAUTIX
+# NAUTIX Backend
 
-### 船舶运行监测与态势感知平台
+### 船舶数据监测与实时处理服务
 
-NAUTIX 面向船舶运行监测，将船位、航线、传感器读数、海域天气与异常事件集中到一个平台，支持历史查询、统计分析和异常过程追溯。项目采用 Spring Boot + Vue 3 前后端分离架构，并内置数据仿真与中英双语界面。
+NAUTIX Backend 是船舶运行监测平台的后端服务，基于 Spring Boot 提供船舶资料、运行状态、传感器读数、航线、海域天气与告警接口。内置数据仿真、异步写入和统计查询，支持历史访问与异常过程追溯，通过 REST API 为配套 Web 客户端提供数据。
 
 [后端仓库](https://github.com/TongYan05/NAUTIX) · [前端仓库](https://github.com/TongYan05/Nautix-Front)
 
@@ -12,7 +12,7 @@ NAUTIX 面向船舶运行监测，将船位、航线、传感器读数、海域�
 - **查询范围控制**：结合 `ID Range + Time Filter` 缩小候选数据范围，关闭分页自动 `COUNT`；单船统计先截取最近最多 **50,000 条**读数，再按传感器配置执行 `AVG / STDDEV_POP`。
 - **航线集中缓存**：正常有数据时，通过 **2 次批量查询**加载航线与点位，排序分组后建立进程内缓存；总览抽稀并保留首尾点，详情按需返回完整航迹。
 - **异常事件聚合**：支持 **5 种阈值比较运算**，按 `(ship_id, rule_id)` 复用活跃事件；持续越界更新数值峰值，恢复时记录结束时间和持续时长。
-- **地图绘制预算**：静态图层与动态船位分离，初始化后的常规刷新只请求 **1 个船位接口**；使用 Inline SVG 绘制船标记，最多 **800 艘**，热力网格聚合后最多绘制 **160 个点**。
+- **规则驱动问答**：通过关键词与词边界匹配选择预置业务查询，结合本地日期、算术和单位换算工具提供中英回答，不调用外部 LLM。
 
 以上数字是当前代码中的容量、上限与查询次数，不代表压测吞吐或性能提升结论。
 
@@ -20,18 +20,17 @@ NAUTIX 面向船舶运行监测，将船位、航线、传感器读数、海域�
 
 | 模块 | 功能 |
 | --- | --- |
-| 监测大屏 | 船舶、传感器与告警概况，趋势图和分布统计 |
+| 概况统计 | 船舶、传感器与告警概况，趋势与分布数据 |
 | 船舶管理 | 船舶资料维护、检索与运行状态查询 |
 | 传感器中心 | 类型字典、船舶传感器配置、历史读数、趋势与波动统计 |
 | 告警管理 | 阈值规则、告警记录、异常事件与处理状态 |
 | 航线与港口 | 航线及点位查询、港口资料、航迹总览与详情 |
-| 态势地图 | 船位、航线和相关地理图层，船流热力展示 |
 | 海域天气 | 海域气象信息查询与展示 |
-| 数据分析 | 船舶、传感器和告警等业务数据的图表分析 |
+| 数据分析 | 船舶、传感器与告警的统计和聚合接口 |
 | 自然语言助手 | 规则路由的业务查询，以及日期、算术、单位换算等本地功能 |
-| 认证与界面 | 注册登录、JWT 认证、登录失效处理、中英切换与操作日志 |
+| 认证与日志 | 注册登录、JWT 认证、认证错误响应与操作日志 |
 
-自然语言助手通过关键词和词边界匹配选择预置查询或本地工具，不调用外部 LLM。业务回答基于查询结果组织；“不依赖外部 LLM”不等于平台无需后端或数据库。
+自然语言助手通过关键词和词边界匹配选择预置查询或本地工具，不调用外部 LLM。业务回答基于查询结果组织，数据库和后端服务仍是运行依赖。
 
 ## 技术栈
 
@@ -41,17 +40,15 @@ NAUTIX 面向船舶运行监测，将船位、航线、传感器读数、海域�
 | 数据访问 | MyBatis-Plus 3.5.9、MySQL、MySQL Connector/J |
 | 认证 | JWT / JJWT 0.12.6、无状态认证 |
 | 数据仿真与导入 | Java 并发队列、独立写线程、DataFaker、EasyExcel、Apache POI |
-| 前端 | Vue 3、TypeScript、Vite、Vue Router、Pinia |
-| 界面与图表 | Element Plus、ECharts、SVG 地图图层 |
-| 请求与构建 | Axios、Maven Wrapper、npm、vue-tsc |
+| 构建 | Maven Wrapper、Spring Boot Maven Plugin |
 
-具体依赖版本以两个仓库的 `pom.xml`、`package.json` 和锁文件为准。
+具体依赖版本以本仓库的 [pom.xml](pom.xml) 为准。
 
 ## 系统架构
 
 ```mermaid
 flowchart LR
-    UI[Vue 3 界面与图表] --> HTTP[Axios 与 Bearer Token]
+    UI[Web 客户端与 API 调用方] --> HTTP[HTTP 与 Bearer Token]
     HTTP --> SEC[Spring Security]
     SEC --> API[Controller 与业务 Service]
     API --> MP[MyBatis Plus]
@@ -78,11 +75,11 @@ flowchart LR
 - 单船波动统计的 50,000 条上限作用于这艘船的候选读数集合，再按配置分组，并非每种传感器各取 50,000 条。
 - 航线缓存保存完整点位，总览与详情复用；缓存属于当前后端进程，数据变更后需要刷新。
 
-### 认证与前端刷新
+### 认证边界
 
-除 `/auth/**` 和 `/public/**` 外，接口要求认证。后端配置 401 / 403 JSON 响应，前端 Axios 拦截层收到这两类响应后清理本地会话并跳转登录页。当前配置以登录认证为主，不将其描述为完整的多租户或细粒度 RBAC 系统。
+除 `/auth/**` 和 `/public/**` 外，接口要求认证。JWT 过滤器验证凭证并建立认证上下文；服务使用无状态认证，不依赖 HttpSession 保存登录态。认证失败由 AuthenticationEntryPoint 返回 401 JSON，经认证后的访问拒绝由 AccessDeniedHandler 返回 403 JSON。
 
-地图首次加载基础资料与位置数据，后续轮询主要更新动态船位。800 艘是单次绘制上限，160 个是聚合热力点上限，均不表示全部数据库对象同时显示，也不保证特定设备的帧率。
+当前 SecurityConfig 以 `authenticated()` 为主，认证对象未填充角色权限集合；登录认证不等同于已实现完整的多租户或细粒度 RBAC。CORS 来源和业务访问范围应分别配置。
 
 ## 本地运行
 
@@ -90,20 +87,15 @@ flowchart LR
 
 - JDK 17。
 - MySQL 8.x，以及已有的表结构和基础数据。
-- Node.js **20.19+（20.x）或 22.12+**，满足当前前端锁文件的引擎要求。
-- Git 与 npm；后端使用仓库自带的 Maven Wrapper。
+- Git；构建使用仓库自带的 Maven Wrapper。
 
 ### 2. 获取代码
 
 ```bash
-# 后端
 git clone --branch main https://github.com/TongYan05/NAUTIX.git shipsensor
-
-# 前端
-git clone --branch frontend https://github.com/TongYan05/Nautix-Front.git nautix-frontend
 ```
 
-也可直接使用已有的 `shipsensor/` 和 `nautix-frontend/` 本地目录。
+也可直接使用已有的 `shipsensor/` 本地目录。
 
 ### 3. 准备数据库
 
@@ -127,7 +119,7 @@ alert_event            sys_operation_log
 
 ### 4. 配置并启动后端
 
-配置文件：`shipsensor/src/main/resources/application.yaml`。
+配置文件：[src/main/resources/application.yaml](src/main/resources/application.yaml)。
 
 | 配置项 | 用途 |
 | --- | --- |
@@ -163,27 +155,11 @@ curl http://localhost:1910/api/public/ping
 
 `/public/ping` 验证接口可达，不代表全部数据库与业务数据已经就绪。
 
-### 5. 配置并启动前端
+### 5. 接入前端
 
-```bash
-cd nautix-frontend
-npm ci
-npm run dev
-```
+配套客户端的安装、页面、图表和地图说明见 [前端 README](https://github.com/TongYan05/Nautix-Front/blob/frontend/README.md)。前端默认访问 `http://localhost:1910/api`。
 
-访问 Vite 输出的本地地址，通常为 `http://localhost:5173`；端口占用时以终端实际输出为准。
-
-当前 `src/api/axios.ts` 的 `baseURL` 直接配置为 `http://localhost:1910/api`。虽然 `.env.development` 声明了 `VITE_API_BASE_URL`，Axios 实例目前没有读取它；更换后端地址时需要同步修改请求实例，或将实例改为读取环境变量。
-
-后端当前 CORS 配置允许本机 `localhost` 与 `127.0.0.1` 来源。通过其他域名访问时，应调整 `SecurityConfig` 中的来源配置。
-
-### 6. 体验功能
-
-1. 在注册页面创建账号并登录。
-2. 打开船舶、传感器和告警页面，确认基础数据已正确导入。
-3. 查看航线总览、船位图层和统计图表。
-4. 使用顶部语言切换，查看界面与图表文案的中英变化。
-5. 打开助手，尝试“平台有多少艘船？”、“What is 128 * 7?”等问题。
+后端当前 CORS 允许本机 `localhost` 与 `127.0.0.1` 来源。前端使用其他域名时，需要调整 `SecurityConfig` 的来源配置；客户端应使用实际可达的后端地址。
 
 ## 数据仿真配置
 
@@ -260,38 +236,21 @@ shipsensor/
         ├── application.yaml
         ├── mapper/          自定义 SQL
         └── data/ports.xlsx  港口导入数据
-
-nautix-frontend/
-├── package.json
-├── vite.config.ts
-└── src/
-    ├── api/                 Axios 实例与业务请求
-    ├── components/          地图、图表与业务组件
-    ├── hooks/               图表等可复用逻辑
-    ├── i18n/                中英字典与图表文案
-    ├── layouts/             页面布局
-    ├── router/              路由与登录守卫
-    ├── stores/              Pinia 状态
-    └── views/               各业务页面
 ```
 
-## 构建
-
-后端：
+## 构建与运行
 
 ```bash
 ./mvnw clean package
 ```
 
-Windows 使用 `.\mvnw.cmd clean package`。构建后的可执行 JAR 位于 `target/`。
-
-前端：
+Windows 使用 `.\mvnw.cmd clean package`。构建后的可执行 JAR 位于 `target/`：
 
 ```bash
-npm run build
+java -jar target/shipsensor-0.0.1-SNAPSHOT.jar
 ```
 
-该命令先运行 `vue-tsc` 类型检查，再生成 `dist/`。部署时还需配置前端 API 地址、后端数据库连接和允许的跨域来源；前端 History 路由的静态托管需要回退到 `index.html`。
+部署时配置数据库连接、JWT 密钥和允许的前端来源。运行目录与仓库路径可以不同，但需要保留对应的外部配置和数据准备步骤。
 
 ## 关键实现入口
 
@@ -304,7 +263,7 @@ npm run build
 - [SecurityConfig](src/main/java/shipsensor/config/SecurityConfig.java)：认证边界与错误响应。
 - [AiAssistantServiceImpl](src/main/java/shipsensor/service/impl/AiAssistantServiceImpl.java)：自然语言业务路由。
 
-前端地图与图表入口包括 `useMapData.ts`、`ShipLayer.vue`、`HeatmapLayer.vue` 和 `hooks/useChart.ts`，位于前端仓库。
+客户端地图、图表和语言联动的实现入口见配套前端仓库。
 
 ## 作者
 
