@@ -22,9 +22,21 @@ public class AlertRecordController {
         return alertRecordService.getById(id);
     }
 
+    /**
+     * 全量列表（供前端分析页聚合）。
+     * 告警记录会持续增长，这里按时间倒序限量返回最近的记录，
+     * 避免单次响应几十 MB 把浏览器卡死。
+     */
     @GetMapping("/list")
-    public List<AlertRecord> getAll() {
-        return alertRecordService.list();
+    public List<AlertRecord> getAll(
+            @RequestParam(defaultValue = "5000") int limit
+    ) {
+        if (limit < 1) limit = 1;
+        if (limit > 20000) limit = 20000;
+        LambdaQueryWrapper<AlertRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.orderByDesc(AlertRecord::getAlertTime);
+        wrapper.last("LIMIT " + limit);
+        return alertRecordService.list(wrapper);
     }
 
     @PostMapping

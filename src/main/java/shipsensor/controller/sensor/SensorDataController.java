@@ -23,22 +23,48 @@ public class SensorDataController {
     @Autowired
     private SensorDataMapper sensorDataMapper;
 
+    /**
+     * 最近读数趋势。
+     * sensor_data 有 2.6 亿行、每艘船 16 类传感器且读数按船轮转写入，
+     * 不带 shipId 的全局最新 N 条几乎全是不同 config（每路只有 1~2 个点），
+     * 画不出趋势线；因此前端应按船取数，单船 limit 允许更大。
+     */
     @GetMapping("/trend")
-    public List<SensorData> getTrend(@RequestParam(defaultValue = "60") int limit) {
-        if (limit > 200) limit = 200;
+    public List<SensorData> getTrend(
+            @RequestParam(defaultValue = "400") int limit,
+            @RequestParam(required = false) Integer shipId) {
+        if (limit < 1) limit = 1;
+        if (shipId != null) {
+            if (limit > 5000) limit = 5000;
+            return sensorDataMapper.selectLatestTrendByShip(shipId, limit);
+        }
+        if (limit > 400) limit = 400;
         return sensorDataMapper.selectLatestTrend(limit);
     }
 
     /**
      * 传感器波动性统计（数据库级聚合）。
-     * scan 为扫描的最近行数上限，默认 30 万行，毫秒~秒级返回。
+     * scan 为扫描的最近行数上限，默认 20 万行；top 为返回的 config 数上限。
+     * sensor_data 有 2.6 亿行，必须同时限制扫描窗口与结果条数，
+     * 否则响应体和前端 join 会一起把页面拖死。
+     * shipId 非空时只统计该船（走 ship_id 索引，窗口可放大）。
      */
     @GetMapping("/volatility")
     public List<java.util.Map<String, Object>> getVolatility(
-            @RequestParam(defaultValue = "300000") long scan) {
+            @RequestParam(defaultValue = "200000") long scan,
+            @RequestParam(defaultValue = "300") int top,
+            @RequestParam(required = false) Integer shipId) {
+        if (top < 10) top = 10;
+        if (top > 1000) top = 1000;
+        if (shipId != null) {
+            // 单船：scan 表示"该船最近多少条读数"，每船约 2.6 万条，默认扫 5000 足够出稳定统计
+            if (scan < 1000) scan = 5000;
+            if (scan > 50000) scan = 50000;
+            return sensorDataMapper.selectVolatilityStatsByShip(shipId, scan, top);
+        }
         if (scan < 1000) scan = 1000;
         if (scan > 2_000_000) scan = 2_000_000;
-        return sensorDataMapper.selectVolatilityStats(scan);
+        return sensorDataMapper.selectVolatilityStats(scan, top);
     }
 
     @GetMapping("/{id}")
@@ -46,9 +72,24 @@ public class SensorDataController {
         return sensorDataService.getById(id);
     }
 
+    /**
+     * 传感器读数列表（限量保护）。
+     * 该表 2.6 亿行，无 LIMIT 的 list 一旦被调用就是几十秒起步、
+     * 且会把整表塞进 JVM 堆，故强制上限。
+     */
     @GetMapping("/list")
-    public List<SensorData> getAll() {
-        return sensorDataService.list();
+    public List<SensorData> getAll(
+            @RequestParam(required = false) Integer shipId,
+            @RequestParam(required = false) Integer configId,
+            @RequestParam(defaultValue = "500") int limit) {
+        if (limit < 1) limit = 1;
+        if (limit > 5000) limit = 5000;
+        LambdaQueryWrapper<SensorData> wrapper = new LambdaQueryWrapper<>();
+        if (shipId != null) wrapper.eq(SensorData::getShipId, shipId);
+        if (configId != null) wrapper.eq(SensorData::getConfigId, configId);
+        wrapper.orderByDesc(SensorData::getId);
+        wrapper.last("LIMIT " + limit);
+        return sensorDataService.list(wrapper);
     }
 
     @PostMapping

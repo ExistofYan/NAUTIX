@@ -32,6 +32,12 @@ server:
   port: 1910
   servlet:
     context-path: /api
+  compression:
+    # JSON 文本重复度高，压缩后体积通常能降到 1/10 以下，
+    # 大列表接口的传输时间随之大幅下降
+    enabled: true
+    mime-types: application/json,text/plain,text/html
+    min-response-size: 2048
 
 
 

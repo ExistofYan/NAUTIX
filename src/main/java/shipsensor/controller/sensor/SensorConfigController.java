@@ -29,11 +29,40 @@ public class SensorConfigController {
     }
 
     /**
-     * 查询所有传感器配置（不分页，适用于下拉框等场景）
+     * 查询传感器配置（不分页，适用于下拉框/树等场景）。
+     * sensor_config 表有 16 万条（1 万艘船 × 16 类传感器），
+     * 全量返回会让前端一次性构造十几万个响应式对象并渲染，直接冻结主线程。
+     * 因此：带 shipId 时只返回该船配置（约 16 条）；
+     * 不带时按主键升序限量返回，供全局列表/树做首屏。
      */
     @GetMapping
-    public List<SensorConfig> getAll() {
-        return sensorConfigService.list();
+    public List<SensorConfig> getAll(
+            @RequestParam(required = false) Integer shipId,
+            @RequestParam(defaultValue = "2000") int limit
+    ) {
+        if (limit < 1) limit = 1;
+        if (limit > 5000) limit = 5000;
+        LambdaQueryWrapper<SensorConfig> wrapper = new LambdaQueryWrapper<>();
+        if (shipId != null) {
+            wrapper.eq(SensorConfig::getShipId, shipId);
+        }
+        wrapper.orderByAsc(SensorConfig::getId);
+        wrapper.last("LIMIT " + limit);
+        return sensorConfigService.list(wrapper);
+    }
+
+    /**
+     * 传感器配置总数。
+     * 列表接口为性能已限量，KPI 需要真实总数时走这个 COUNT 端点，
+     * 避免前端为了一个数字拉 16 万条数据。
+     */
+    @GetMapping("/count")
+    public long count(@RequestParam(required = false) Integer shipId,
+                      @RequestParam(required = false) Integer status) {
+        LambdaQueryWrapper<SensorConfig> wrapper = new LambdaQueryWrapper<>();
+        if (shipId != null) wrapper.eq(SensorConfig::getShipId, shipId);
+        if (status != null) wrapper.eq(SensorConfig::getStatus, status);
+        return sensorConfigService.count(wrapper);
     }
 
     /**
